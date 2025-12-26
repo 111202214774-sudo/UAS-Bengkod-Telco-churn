@@ -3,130 +3,110 @@ import pandas as pd
 import joblib
 import numpy as np
 
-# 1. Konfigurasi Halaman (Page Config)
+# --- KONFIGURASI ANTARMUKA ---
 st.set_page_config(
-    page_title="Telco Churn Prediction System",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="Analytics: Customer Retention",
+    page_icon="📊",
+    layout="centered"
 )
 
-# 2. Load Model
-try:
-    model = joblib.load('model_churn_terbaik.pkl')
-except FileNotFoundError:
-    st.error("Critical Error: Model file 'model_churn_terbaik.pkl' not found in the directory.")
+# --- LOAD ENGINE PREDIKSI ---
+@st.cache_resource
+def load_engine():
+    try:
+        return joblib.load('model_churn_terbaik.pkl')
+    except FileNotFoundError:
+        return None
+
+predictor = load_engine()
+
+if predictor is None:
+    st.error("Sistem gagal memuat model. Pastikan file 'model_churn_terbaik.pkl' tersedia.")
     st.stop()
 
-# 3. Header Utama
-st.title("Sistem Prediksi Churn Pelanggan")
-st.markdown("""
-Aplikasi ini menggunakan algoritma Machine Learning untuk memprediksi probabilitas pelanggan berhenti berlangganan (Churn).
-Silakan masukkan parameter pelanggan pada panel di sebelah kiri untuk memulai analisis.
-""")
-st.markdown("---")
+# --- HEADER ---
+st.title("Dashboard Prediksi Retensi Pelanggan")
+st.info("Gunakan panel di samping untuk memasukkan profil pelanggan dan menekan tombol 'Analisis' di bawah.")
 
-# 4. Sidebar Input
-st.sidebar.title("Parameter Input")
-st.sidebar.info("Sesuaikan parameter di bawah ini dengan profil pelanggan.")
+# --- INPUT DATA PELANGGAN ---
+st.sidebar.header("📋 Input Data Pelanggan")
 
-def user_input_features():
-    # Group 1: Demografi
-    st.sidebar.subheader("Profil Demografi")
-    gender = st.sidebar.selectbox("Gender", ["Male", "Female"])
-    senior = st.sidebar.selectbox("Senior Citizen", [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
-    partner = st.sidebar.selectbox("Partner", ["Yes", "No"])
-    dependents = st.sidebar.selectbox("Dependents", ["Yes", "No"])
+def tangkap_input_user():
+    # Mengelompokkan input ke dalam Expander agar lebih rapi
+    with st.sidebar.expander("Profil Dasar", expanded=True):
+        gen = st.selectbox("Jenis Kelamin", ["Male", "Female"])
+        snr = st.selectbox("Status Lansia", [0, 1], format_func=lambda x: "Ya" if x == 1 else "Tidak")
+        ptn = st.selectbox("Memiliki Pasangan", ["Yes", "No"])
+        dep = st.selectbox("Tanggungan Keluarga", ["Yes", "No"])
+        tenure = st.slider("Masa Berlangganan (Bulan)", 0, 72, 12)
 
-    # Group 2: Layanan
-    st.sidebar.subheader("Layanan Berlangganan")
-    tenure = st.sidebar.number_input("Tenure (Bulan)", min_value=0, max_value=72, value=12)
-    phone = st.sidebar.selectbox("Phone Service", ["Yes", "No"])
-    multi_lines = st.sidebar.selectbox("Multiple Lines", ["No phone service", "No", "Yes"])
-    internet = st.sidebar.selectbox("Internet Service", ["DSL", "Fiber optic", "No"])
-    sec = st.sidebar.selectbox("Online Security", ["No internet service", "No", "Yes"])
-    backup = st.sidebar.selectbox("Online Backup", ["No internet service", "No", "Yes"])
-    dev_prot = st.sidebar.selectbox("Device Protection", ["No internet service", "No", "Yes"])
-    tech_sup = st.sidebar.selectbox("Tech Support", ["No internet service", "No", "Yes"])
-    tv = st.sidebar.selectbox("Streaming TV", ["No internet service", "No", "Yes"])
-    movies = st.sidebar.selectbox("Streaming Movies", ["No internet service", "No", "Yes"])
+    with st.sidebar.expander("Layanan Koneksi", expanded=True):
+        phn = st.selectbox("Layanan Telepon", ["Yes", "No"])
+        mul = st.selectbox("Multi-Line", ["Yes", "No", "No phone service"])
+        int_srv = st.selectbox("Provider Internet", ["DSL", "Fiber optic", "No"])
+        sec = st.selectbox("Keamanan Online", ["Yes", "No", "No internet service"])
+        bck = st.selectbox("Backup Online", ["Yes", "No", "No internet service"])
+        prot = st.selectbox("Proteksi Perangkat", ["Yes", "No", "No internet service"])
+        sup = st.selectbox("Dukungan Teknis", ["Yes", "No", "No internet service"])
+        tv = st.selectbox("Streaming TV", ["Yes", "No", "No internet service"])
+        mov = st.selectbox("Streaming Movies", ["Yes", "No", "No internet service"])
 
-    # Group 3: Akun & Pembayaran
-    st.sidebar.subheader("Informasi Akun")
-    contract = st.sidebar.selectbox("Contract Type", ["Month-to-month", "One year", "Two year"])
-    paperless = st.sidebar.selectbox("Paperless Billing", ["Yes", "No"])
-    payment = st.sidebar.selectbox("Payment Method", [
-        "Electronic check", "Mailed check", "Bank transfer (automatic)", "Credit card (automatic)"
-    ])
-    monthly = st.sidebar.number_input("Monthly Charges ($)", min_value=0.0, value=50.0)
-    total = st.sidebar.number_input("Total Charges ($)", min_value=0.0, value=0.0)
+    with st.sidebar.expander("Detail Kontrak & Biaya", expanded=True):
+        cnt = st.selectbox("Tipe Kontrak", ["Month-to-month", "One year", "Two year"])
+        pap = st.selectbox("Tagihan Digital (Paperless)", ["Yes", "No"])
+        pay = st.selectbox("Metode Pembayaran", [
+            "Electronic check", "Mailed check", 
+            "Bank transfer (automatic)", "Credit card (automatic)"
+        ])
+        mth = st.number_input("Biaya Bulanan ($)", 0.0, 200.0, 70.0)
+        total = st.number_input("Total Akumulasi Biaya ($)", 0.0, 10000.0, 800.0)
 
-    # Konstruksi DataFrame
-    data = {
-        'gender': gender, 'SeniorCitizen': senior, 'Partner': partner, 'Dependents': dependents,
-        'tenure': tenure, 'PhoneService': phone, 'MultipleLines': multi_lines,
-        'InternetService': internet, 'OnlineSecurity': sec, 'OnlineBackup': backup,
-        'DeviceProtection': dev_prot, 'TechSupport': tech_sup, 'StreamingTV': tv,
-        'StreamingMovies': movies, 'Contract': contract, 'PaperlessBilling': paperless,
-        'PaymentMethod': payment, 'MonthlyCharges': monthly, 'TotalCharges': total
+    # Struktur DataFrame (sesuaikan dengan urutan model asli)
+    data_map = {
+        'gender': gen, 'SeniorCitizen': snr, 'Partner': ptn, 'Dependents': dep,
+        'tenure': tenure, 'PhoneService': phn, 'MultipleLines': mul,
+        'InternetService': int_srv, 'OnlineSecurity': sec, 'OnlineBackup': bck,
+        'DeviceProtection': prot, 'TechSupport': sup, 'StreamingTV': tv,
+        'StreamingMovies': mov, 'Contract': cnt, 'PaperlessBilling': pap,
+        'PaymentMethod': pay, 'MonthlyCharges': mth, 'TotalCharges': total
     }
-    return pd.DataFrame(data, index=[0])
+    return pd.DataFrame([data_map])
 
-# Eksekusi Input
-input_df = user_input_features()
+input_data = tangkap_input_user()
 
-# 5. Review Data (Main Panel) - DIPERBAIKI (SPLIT 2 KOLOM)
-st.subheader("Tinjauan Data Input")
+# --- RINGKASAN PROFIL ---
+st.subheader("Ringkasan Profil")
+with st.container():
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Tenure", f"{input_data['tenure'].values[0]} Bln")
+    c2.metric("Biaya/Bln", f"${input_data['MonthlyCharges'].values[0]}")
+    c3.metric("Kontrak", input_data['Contract'].values[0])
 
-with st.expander("Lihat Detail Data (Klik untuk membuka)", expanded=True):
-    # Ubah dataframe menjadi vertikal (Transpose)
-    df_transposed = input_df.T
-    df_transposed.columns = ["Value"] # Beri nama kolom
-
-    # Bagi menjadi 2 Kolom Tampilan
-    col_kiri, col_kanan = st.columns(2)
-
-    # Tentukan titik tengah untuk membagi data
-    half_point = 10 
-
-    with col_kiri:
-        st.markdown("**📂 Profil & Layanan Dasar**")
-        # Tampilkan separuh data pertama
-        st.table(df_transposed.iloc[:half_point])
-
-    with col_kanan:
-        st.markdown("**💳 Layanan Tambahan & Akun**")
-        # Tampilkan separuh data sisanya
-        st.table(df_transposed.iloc[half_point:])
-
-# 6. Logika Prediksi
-if st.button("Proses Analisis", type="primary"):
+# --- PROSES PREDIKSI ---
+if st.button("Jalankan Analisis", type="primary", use_container_width=True):
+    hasil = predictor.predict(input_data)
     
-    # Melakukan Prediksi
-    prediction = model.predict(input_df)
-    
-    # Mengambil Probabilitas (Jika didukung model)
     try:
-        proba = model.predict_proba(input_df)
-        probability = np.max(proba) * 100
+        prob_score = predictor.predict_proba(input_data)
+        confidence = np.max(prob_score) * 100
     except:
-        probability = 0
+        confidence = None
 
-    st.markdown("---")
-    st.subheader("Hasil Analisis")
+    st.divider()
+    
+    # Tampilan Hasil
+    if hasil[0] == 1:
+        st.warning("### ⚠️ Hasil: Berisiko Tinggi (Churn)")
+        st.write(f"Sistem mendeteksi probabilitas sebesar **{confidence:.2f}%** bahwa pelanggan ini akan berhenti.")
+    else:
+        st.success("### ✅ Hasil: Loyal (Non-Churn)")
+        st.write(f"Tingkat keyakinan model: **{confidence:.2f}%**.")
 
-    # Layout Kolom untuk Hasil
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if prediction[0] == 1:
-            st.error("Status: CHURN (Berisiko)")
-            st.markdown("**Kesimpulan:** Pelanggan memiliki indikasi tinggi untuk berhenti berlangganan.")
+    # Rekomendasi
+    with st.expander("Lihat Rekomendasi Tindakan"):
+        if hasil[0] == 1:
+            st.write("- Tawarkan diskon perpanjangan kontrak.")
+            st.write("- Hubungi pelanggan untuk menanyakan kendala teknis.")
         else:
-            st.success("Status: NON-CHURN (Aman)")
-            st.markdown("**Kesimpulan:** Pelanggan diprediksi akan tetap menggunakan layanan.")
-
-    with col2:
-        if probability > 0:
-            st.metric(label="Tingkat Keyakinan Model (Probability)", value=f"{probability:.2f}%")
-        else:
-            st.metric(label="Prediction Output", value=str(prediction[0]))
+            st.write("- Pertahankan kualitas layanan saat ini.")
+            st.write("- Tawarkan program loyalitas atau upgrade paket.")
